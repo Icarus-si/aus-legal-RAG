@@ -11,7 +11,7 @@ Built by Abhay Singh Wazir, Master of Data Science (Professional) student at Dea
 | Resource | Link |
 |---|---|
 | API docs | aus-legal-rag.onrender.com/docs |
-| Interactive UI | Streamlit app (link in repo) |
+| Interactive UI | https://tech-job-predictor-nzj7dame7fvs45uexpg3mx.streamlit.app/ |
 
 ---
 
