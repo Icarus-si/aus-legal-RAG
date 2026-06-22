@@ -47,6 +47,7 @@ Answer with page citations
 
 ### Configuration
 
+<<<<<<< HEAD
 | Parameter | Value |
 |---|---|
 | Chunk size | 1000 characters |
@@ -146,6 +147,23 @@ In a second terminal:
 ```bash
 streamlit run streamlit_app.py
 ```
+=======
+1. bash:                                          
+git clone https://github.com/Icarus-si/aus-legal-RAG                        
+cd aus-legal-RAG                                            
+python -m venv venv                                                     
+venv\Scripts\activate                                                  
+pip install -r requirements.txt                                      
+
+2. Create a .env file with your own Gemini API key:                                                                                                              
+GEMINI_API_KEY=your_key_here
+
+3. Then run:                                                        
+bashuvicorn app.main:app --reload
+
+4. In a second terminal:                                                                       
+bashstreamlit run streamlit_app.py
+>>>>>>> e59c81d534f1ab229857496594cd05419375ebe8
 
 ---
 
