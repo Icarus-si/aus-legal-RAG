@@ -62,20 +62,20 @@ Answer + page citations
 
 Run locally
 
-1. bash:
-git clone https://github.com/Icarus-si/aus-legal-RAG
-cd aus-legal-RAG
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
+1. bash:                                          
+git clone https://github.com/Icarus-si/aus-legal-RAG                        
+cd aus-legal-RAG                                            
+python -m venv venv                                                     
+venv\Scripts\activate                                                  
+pip install -r requirements.txt                                      
 
-2. Create a .env file with your own Gemini API key:                                         
+2. Create a .env file with your own Gemini API key:                                                                                                              
 GEMINI_API_KEY=your_key_here
 
-3. Then run:
+3. Then run:                                                        
 bashuvicorn app.main:app --reload
 
-4. In a second terminal:
+4. In a second terminal:                                                                       
 bashstreamlit run streamlit_app.py
 
 What I learned
