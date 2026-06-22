@@ -47,7 +47,7 @@ Answer with page citations
 
 ### Configuration
 
-<<<<<<< HEAD
+HEAD
 | Parameter | Value |
 |---|---|
 | Chunk size | 1000 characters |
@@ -163,7 +163,7 @@ bashuvicorn app.main:app --reload
 
 4. In a second terminal:                                                                       
 bashstreamlit run streamlit_app.py
->>>>>>> e59c81d534f1ab229857496594cd05419375ebe8
+
 
 ---
 
