@@ -69,7 +69,7 @@ python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 
-2. Create a .env file with your own Gemini API key:
+2. Create a .env file with your own Gemini API key:                                         
 GEMINI_API_KEY=your_key_here
 
 3. Then run:
