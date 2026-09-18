@@ -4,6 +4,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from typing import List
 import sys
+from prometheus_fastapi_instrumentator import Instrumentator
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from rag.pipeline import load_and_index_pdfs, load_vectorstore, get_rag_chain, ask_question
