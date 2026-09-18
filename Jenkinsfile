@@ -64,11 +64,27 @@ pipeline {
             }
         }
 
-        stage('Security') {
-            steps {
-                echo 'Security stage will be configured next.'
-            }
+       stage('Security') {
+    steps {
+        echo 'Running Python dependency security scan with pip-audit...'
+
+        bat '''
+            docker run --rm ^
+              -v "%CD%:/workspace" ^
+              -w /workspace ^
+              python:3.11-slim ^
+              sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt >/dev/null && python -m pip_audit -r requirements.txt --format=json --output=pip-audit-report.json --progress-spinner off; exit 0"
+        '''
+
+        echo 'pip-audit scan completed. Security report generated.'
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'pip-audit-report.json', allowEmptyArchive: false
         }
+    }
+}
 
         stage('Deploy') {
             steps {
