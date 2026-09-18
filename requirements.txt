@@ -10,3 +10,4 @@ uvicorn
 streamlit
 python-dotenv
 requests
+prometheus-fastapi-instrumentator==8.1.0
