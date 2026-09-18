@@ -5,6 +5,8 @@ pipeline {
         APP_NAME = 'aus-legal-rag'
         IMAGE_TAG = "${BUILD_NUMBER}"
         IMAGE_NAME = "${APP_NAME}:${IMAGE_TAG}"
+
+        SONAR_SCANNER_HOME = tool 'SonarQube-Scanner'
     }
 
     stages {
@@ -23,29 +25,42 @@ pipeline {
         }
 
         stage('Test') {
-    steps {
-        echo 'Running automated Python tests in a clean Python 3.11 container...'
+            steps {
+                echo 'Running automated Python tests in a clean Python 3.11 container...'
 
-        bat '''
-            docker run --rm ^
-              -v "%CD%:/workspace" ^
-              -w /workspace ^
-              python:3.11-slim ^
-              sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && python -m pytest -v --junitxml=test-results.xml --cov=. --cov-report=xml"
-        '''
-    }
+                bat '''
+                    docker run --rm ^
+                      -v "%CD%:/workspace" ^
+                      -w /workspace ^
+                      python:3.11-slim ^
+                      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && python -m pytest -v --junitxml=test-results.xml --cov=. --cov-report=xml"
+                '''
+            }
 
-    post {
-        always {
-            junit testResults: 'test-results.xml', allowEmptyResults: true
-            archiveArtifacts artifacts: 'coverage.xml', allowEmptyArchive: true
+            post {
+                always {
+                    junit testResults: 'test-results.xml', allowEmptyResults: true
+                    archiveArtifacts artifacts: 'coverage.xml', allowEmptyArchive: true
+                }
+            }
         }
-    }
-}
 
         stage('Code Quality') {
             steps {
-                echo 'Code Quality stage will be configured next.'
+                echo 'Running SonarCloud code quality analysis...'
+
+                withCredentials([
+                    string(
+                        credentialsId: 'SONAR_TOKEN',
+                        variable: 'SONAR_TOKEN'
+                    )
+                ]) {
+                    bat '''
+                        "%SONAR_SCANNER_HOME%\\bin\\sonar-scanner.bat" ^
+                          -Dsonar.token=%SONAR_TOKEN% ^
+                          -Dsonar.qualitygate.wait=true
+                    '''
+                }
             }
         }
 
