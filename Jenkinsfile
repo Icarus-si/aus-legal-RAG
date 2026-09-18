@@ -126,11 +126,28 @@ pipeline {
             }
         }
 
-        stage('Release') {
-            steps {
-                echo 'Release stage will be configured next.'
-            }
-        }
+      stage('Release') {
+    steps {
+        echo 'Production release requires manual approval.'
+
+        input message: 'Approve release to production?', ok: 'Release'
+
+        echo "Releasing ${IMAGE_NAME} to production..."
+
+        bat '''
+            docker rm -f aus-legal-rag-production >NUL 2>&1 || exit /b 0
+        '''
+
+        bat """
+            docker run -d ^
+              --name aus-legal-rag-production ^
+              -p 8082:8000 ^
+              ${IMAGE_NAME}
+        """
+
+        echo 'Production container started successfully.'
+    }
+}
 
         stage('Monitoring') {
             steps {
