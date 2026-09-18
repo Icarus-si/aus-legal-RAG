@@ -64,7 +64,7 @@ pipeline {
             }
         }
 
-       stage('Security') {
+      stage('Security') {
     steps {
         echo 'Running Python dependency security scan with pip-audit...'
 
@@ -76,12 +76,23 @@ pipeline {
               sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt >/dev/null && python -m pip_audit -r requirements.txt --format=json --output=pip-audit-report.json --progress-spinner off; exit 0"
         '''
 
-        echo 'pip-audit scan completed. Security report generated.'
+        echo 'Running Docker image security scan with Trivy...'
+
+        bat '''
+            docker run --rm ^
+              -v //var/run/docker.sock:/var/run/docker.sock ^
+              -v "%CD%:/workspace" ^
+              aquasec/trivy:latest ^
+              image --format json --output /workspace/trivy-report.json --severity HIGH,CRITICAL --exit-code 0 %IMAGE_NAME%
+        '''
+
+        echo 'Security scans completed.'
     }
 
     post {
         always {
-            archiveArtifacts artifacts: 'pip-audit-report.json', allowEmptyArchive: false
+            archiveArtifacts artifacts: 'pip-audit-report.json, trivy-report.json',
+                allowEmptyArchive: false
         }
     }
 }
