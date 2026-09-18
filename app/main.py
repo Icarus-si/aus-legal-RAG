@@ -78,6 +78,6 @@ def ask(input: QuestionInput):
 def health():
     return {
         "status": "healthy",
-        "model": "Gemini 1.5 Flash",
+        "model": "Gemini 2.5 Flash",
         "index_exists": os.path.exists("faiss_index")
     }
