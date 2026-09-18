@@ -19,4 +19,5 @@ def test_health_endpoint():
 
     data = response.json()
     assert data["status"] == "healthy"
+    assert data["model"] == "Gemini 2.5 Flash"
     assert "index_exists" in data
