@@ -154,7 +154,7 @@ pipeline {
                 echo 'Monitoring production application...'
 
                 bat '''
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; Write-Host 'Production health response:'; Write-Host $response.Content; if($response.StatusCode -ne 200) { Write-Error 'Production health check failed'; exit 1 }"
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; if($response.StatusCode -eq 200) { Write-Host 'Production health response:'; Write-Host $response.Content; exit 0 } } catch { Write-Host 'Production application is not ready yet. Waiting 5 seconds...'; Start-Sleep -Seconds 5 } }; Write-Error 'Production monitoring health check failed'; exit 1"
                 '''
 
                 bat '''
