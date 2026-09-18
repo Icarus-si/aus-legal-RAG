@@ -160,7 +160,11 @@ pipeline {
                 '''
 
                 bat '''
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $stats=Get-Content 'monitoring-stats.json' -Raw | ConvertFrom-Json; $cpu=[double](($stats.CPUPerc -replace '[^0-9.]','')); $mem=[double](($stats.MemPerc -replace '[^0-9.]','')); Write-Host ('CPU usage: ' + $cpu + '%%'); Write-Host ('Memory usage: ' + $mem + '%%'); if($cpu -gt 80 -or $mem -gt 80) { Write-Error 'ALERT: Resource usage exceeded 80%% threshold'; exit 1 }"
+                    docker info --format "{{.NCPU}}" > docker-cpu-count.txt
+                '''
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $stats=Get-Content 'monitoring-stats.json' -Raw | ConvertFrom-Json; $hostCpu=[double](Get-Content 'docker-cpu-count.txt' -Raw).Trim(); $rawCpu=[double](($stats.CPUPerc -replace '[^0-9.]','')); $normalizedCpu=$rawCpu / $hostCpu; $mem=[double](($stats.MemPerc -replace '[^0-9.]','')); Write-Host ('Docker raw CPU usage: ' + $rawCpu); Write-Host ('Normalized CPU usage: ' + [math]::Round($normalizedCpu,2)); Write-Host ('Memory usage: ' + $mem); if($normalizedCpu -gt 80 -or $mem -gt 80) { Write-Error 'ALERT: Normalized resource usage exceeded 80 threshold'; exit 1 }"
                 '''
 
                 echo 'Checking production health...'
