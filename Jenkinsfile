@@ -64,80 +64,67 @@ pipeline {
             }
         }
 
-      stage('Security') {
-    steps {
-        echo 'Running Python dependency security scan with pip-audit...'
+        stage('Security') {
+            steps {
+                echo 'Running Python dependency security scan with pip-audit...'
 
-        bat '''
-            docker run --rm ^
-              -v "%CD%:/workspace" ^
-              -w /workspace ^
-              python:3.11-slim ^
-              sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt >/dev/null && python -m pip_audit -r requirements.txt --format=json --output=pip-audit-report.json --progress-spinner off; exit 0"
-        '''
+                bat '''
+                    docker run --rm ^
+                      -v "%CD%:/workspace" ^
+                      -w /workspace ^
+                      python:3.11-slim ^
+                      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt >/dev/null && python -m pip_audit -r requirements.txt --format=json --output=pip-audit-report.json --progress-spinner off; exit 0"
+                '''
 
-        echo 'Running Docker image security scan with Trivy...'
+                echo 'Running Docker image security scan with Trivy...'
 
-        bat '''
-            docker run --rm ^
-              -v //var/run/docker.sock:/var/run/docker.sock ^
-              -v "%CD%:/workspace" ^
-              aquasec/trivy:latest ^
-              image --format json --output /workspace/trivy-report.json --severity HIGH,CRITICAL --exit-code 0 %IMAGE_NAME%
-        '''
+                bat '''
+                    docker run --rm ^
+                      -v //var/run/docker.sock:/var/run/docker.sock ^
+                      -v "%CD%:/workspace" ^
+                      aquasec/trivy:latest ^
+                      image --format json --output /workspace/trivy-report.json --severity HIGH,CRITICAL --exit-code 0 %IMAGE_NAME%
+                '''
 
-        echo 'Security scans completed.'
-    }
+                echo 'Security scans completed.'
+            }
 
-    post {
-        always {
-            archiveArtifacts artifacts: 'pip-audit-report.json, trivy-report.json',
-                allowEmptyArchive: false
+            post {
+                always {
+                    archiveArtifacts artifacts: 'pip-audit-report.json, trivy-report.json',
+                        allowEmptyArchive: false
+                }
+            }
         }
-    }
-}
 
-       stage('Deploy') {
-    steps {
-        echo "Deploying ${IMAGE_NAME} to staging environment..."
+        stage('Deploy') {
+            steps {
+                echo "Deploying ${IMAGE_NAME} to staging environment..."
 
-        // Remove any previous staging container
-        bat '''
-            docker rm -f aus-legal-rag-staging >NUL 2>&1 || exit /b 0
-        '''
+                echo 'Removing previous staging container if it exists...'
 
-        // Start the new staging container
-        bat """
-            docker run -d ^
-              --name aus-legal-rag-staging ^
-              -p 8081:8000 ^
-              ${IMAGE_NAME}
-        """
+                bat '''
+                    docker rm -f aus-legal-rag-staging >NUL 2>&1 || exit /b 0
+                '''
 
-        echo 'Waiting for staging application to become healthy...'
+                echo 'Starting new staging container...'
 
-        // Wait until the API responds successfully
-        bat '''
-            powershell -NoProfile -Command ^
-              "$ErrorActionPreference='Stop'; ^
-              for($i=0; $i -lt 12; $i++) { ^
-                  try { ^
-                      $response = Invoke-WebRequest -Uri 'http://localhost:8081/health' -UseBasicParsing -TimeoutSec 3; ^
-                      if($response.StatusCode -eq 200) { ^
-                          Write-Host $response.Content; ^
-                          exit 0 ^
-                      } ^
-                  } catch { ^
-                      Start-Sleep -Seconds 5 ^
-                  } ^
-              }; ^
-              Write-Error 'Staging health check failed'; ^
-              exit 1"
-        '''
+                bat """
+                    docker run -d ^
+                      --name aus-legal-rag-staging ^
+                      -p 8081:8000 ^
+                      ${IMAGE_NAME}
+                """
 
-        echo 'Staging deployment and health check completed successfully.'
-    }
-}
+                echo 'Waiting for staging application to become healthy...'
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { $response=Invoke-WebRequest -Uri 'http://localhost:8081/health' -UseBasicParsing -TimeoutSec 3; if($response.StatusCode -eq 200) { Write-Host $response.Content; exit 0 } } catch { Start-Sleep -Seconds 5 } }; Write-Error 'Staging health check failed'; exit 1"
+                '''
+
+                echo 'Staging deployment and health check completed successfully.'
+            }
+        }
 
         stage('Release') {
             steps {
