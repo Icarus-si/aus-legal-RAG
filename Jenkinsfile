@@ -160,7 +160,7 @@ pipeline {
                 '''
 
                 bat '''
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $stats=Get-Content 'monitoring-stats.json' -Raw | ConvertFrom-Json; $cpu=[double](($stats.CPUPerc -replace '[^0-9.]','')); $mem=[double](($stats.MemPerc -replace '[^0-9.]','')); Write-Host ('CPU usage: ' + $cpu + '%'); Write-Host ('Memory usage: ' + $mem + '%'); if($cpu -gt 80 -or $mem -gt 80) { Write-Error 'ALERT: Resource usage exceeded 80% threshold'; exit 1 }"
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $stats=Get-Content 'monitoring-stats.json' -Raw | ConvertFrom-Json; $cpu=[double](($stats.CPUPerc -replace '[^0-9.]','')); $mem=[double](($stats.MemPerc -replace '[^0-9.]','')); Write-Host ('CPU usage: ' + $cpu + '%%'); Write-Host ('Memory usage: ' + $mem + '%%'); if($cpu -gt 80 -or $mem -gt 80) { Write-Error 'ALERT: Resource usage exceeded 80%% threshold'; exit 1 }"
                 '''
 
                 echo 'Checking production health...'
