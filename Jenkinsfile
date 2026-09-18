@@ -149,10 +149,24 @@ pipeline {
     }
 }
 
-        stage('Monitoring') {
-            steps {
-                echo 'Monitoring stage will be configured next.'
-            }
+       stage('Monitoring') {
+    steps {
+        echo 'Monitoring production application...'
+
+        bat '''
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; Write-Host 'Production health response:'; Write-Host $response.Content; if($response.StatusCode -ne 200) { Write-Error 'Production health check failed'; exit 1 }"
+        '''
+
+        bat '''
+            docker inspect --format="{{.State.Status}}" aus-legal-rag-production
+        '''
+
+        echo 'Production monitoring check completed successfully.'
+    }
+
+    post {
+        failure {
+            echo 'ALERT: Production monitoring check failed.'
         }
     }
 }
