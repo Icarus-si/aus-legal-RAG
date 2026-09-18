@@ -97,11 +97,47 @@ pipeline {
     }
 }
 
-        stage('Deploy') {
-            steps {
-                echo 'Deploy stage will be configured next.'
-            }
-        }
+       stage('Deploy') {
+    steps {
+        echo "Deploying ${IMAGE_NAME} to staging environment..."
+
+        // Remove any previous staging container
+        bat '''
+            docker rm -f aus-legal-rag-staging >NUL 2>&1 || exit /b 0
+        '''
+
+        // Start the new staging container
+        bat """
+            docker run -d ^
+              --name aus-legal-rag-staging ^
+              -p 8081:8000 ^
+              ${IMAGE_NAME}
+        """
+
+        echo 'Waiting for staging application to become healthy...'
+
+        // Wait until the API responds successfully
+        bat '''
+            powershell -NoProfile -Command ^
+              "$ErrorActionPreference='Stop'; ^
+              for($i=0; $i -lt 12; $i++) { ^
+                  try { ^
+                      $response = Invoke-WebRequest -Uri 'http://localhost:8081/health' -UseBasicParsing -TimeoutSec 3; ^
+                      if($response.StatusCode -eq 200) { ^
+                          Write-Host $response.Content; ^
+                          exit 0 ^
+                      } ^
+                  } catch { ^
+                      Start-Sleep -Seconds 5 ^
+                  } ^
+              }; ^
+              Write-Error 'Staging health check failed'; ^
+              exit 1"
+        '''
+
+        echo 'Staging deployment and health check completed successfully.'
+    }
+}
 
         stage('Release') {
             steps {
