@@ -23,21 +23,25 @@ pipeline {
         }
 
         stage('Test') {
-            steps {
-                echo 'Running automated Python tests...'
+    steps {
+        echo 'Running automated Python tests in a clean Python 3.11 container...'
 
-                bat '''
-                    py -m pytest -v --junitxml=test-results.xml --cov=. --cov-report=xml
-                '''
-            }
+        bat '''
+            docker run --rm ^
+              -v "%CD%:/workspace" ^
+              -w /workspace ^
+              python:3.11-slim ^
+              sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && python -m pytest -v --junitxml=test-results.xml --cov=. --cov-report=xml"
+        '''
+    }
 
-            post {
-                always {
-                    junit 'test-results.xml'
-                    archiveArtifacts artifacts: 'coverage.xml', allowEmptyArchive: true
-                }
-            }
+    post {
+        always {
+            junit testResults: 'test-results.xml', allowEmptyResults: true
+            archiveArtifacts artifacts: 'coverage.xml', allowEmptyArchive: true
         }
+    }
+}
 
         stage('Code Quality') {
             steps {
