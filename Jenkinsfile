@@ -126,47 +126,49 @@ pipeline {
             }
         }
 
-      stage('Release') {
-    steps {
-        echo 'Production release requires manual approval.'
+        stage('Release') {
+            steps {
+                echo 'Production release requires manual approval.'
 
-        input message: 'Approve release to production?', ok: 'Release'
+                input message: 'Approve release to production?', ok: 'Release'
 
-        echo "Releasing ${IMAGE_NAME} to production..."
+                echo "Releasing ${IMAGE_NAME} to production..."
 
-        bat '''
-            docker rm -f aus-legal-rag-production >NUL 2>&1 || exit /b 0
-        '''
+                bat '''
+                    docker rm -f aus-legal-rag-production >NUL 2>&1 || exit /b 0
+                '''
 
-        bat """
-            docker run -d ^
-              --name aus-legal-rag-production ^
-              -p 8082:8000 ^
-              ${IMAGE_NAME}
-        """
+                bat """
+                    docker run -d ^
+                      --name aus-legal-rag-production ^
+                      -p 8082:8000 ^
+                      ${IMAGE_NAME}
+                """
 
-        echo 'Production container started successfully.'
-    }
-}
+                echo 'Production container started successfully.'
+            }
+        }
 
-       stage('Monitoring') {
-    steps {
-        echo 'Monitoring production application...'
+        stage('Monitoring') {
+            steps {
+                echo 'Monitoring production application...'
 
-        bat '''
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; Write-Host 'Production health response:'; Write-Host $response.Content; if($response.StatusCode -ne 200) { Write-Error 'Production health check failed'; exit 1 }"
-        '''
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; Write-Host 'Production health response:'; Write-Host $response.Content; if($response.StatusCode -ne 200) { Write-Error 'Production health check failed'; exit 1 }"
+                '''
 
-        bat '''
-            docker inspect --format="{{.State.Status}}" aus-legal-rag-production
-        '''
+                bat '''
+                    docker inspect --format="{{.State.Status}}" aus-legal-rag-production
+                '''
 
-        echo 'Production monitoring check completed successfully.'
-    }
+                echo 'Production monitoring check completed successfully.'
+            }
 
-    post {
-        failure {
-            echo 'ALERT: Production monitoring check failed.'
+            post {
+                failure {
+                    echo 'ALERT: Production monitoring check failed.'
+                }
+            }
         }
     }
 }
