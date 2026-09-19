@@ -45,8 +45,9 @@ pipeline {
                     docker run --rm ^
                       -v "%CD%:/workspace" ^
                       -w /workspace ^
+                      -e PYTHONPATH=/workspace ^
                       python:3.11 ^
-                      bash -c "pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir pytest pytest-cov && pytest -v --junitxml=test-results.xml --cov=app --cov-report=xml:coverage.xml"
+                      bash -c "pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir pytest pytest-cov && PYTHONPATH=/workspace python -m pytest -v --junitxml=test-results.xml --cov=app --cov-report=xml:coverage.xml"
                 '''
 
                 echo 'Automated tests completed.'
@@ -224,12 +225,6 @@ pipeline {
 
                 echo 'Starting Prometheus and Alertmanager monitoring stack...'
 
-                /*
-                 * IMPORTANT:
-                 * The webhook URL is retrieved from the Jenkins credential.
-                 * It is NOT inserted using Groovy interpolation, avoiding the
-                 * Jenkins warning about passing secrets through writeFile.
-                 */
                 withCredentials([
                     string(
                         credentialsId: 'ALERT_WEBHOOK_URL',
@@ -372,9 +367,7 @@ receivers:
             }
 
             post {
-
                 always {
-
                     archiveArtifacts(
                         artifacts: 'monitoring-stats.json, docker-cpu-count.txt',
                         allowEmptyArchive: true
