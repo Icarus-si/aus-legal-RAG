@@ -151,7 +151,83 @@ pipeline {
 
         stage('Monitoring') {
             steps {
-                echo 'Monitoring production application...'
+
+                echo 'Starting Prometheus and Alertmanager monitoring stack...'
+
+                withCredentials([
+                    string(
+                        credentialsId: 'ALERT_WEBHOOK_URL',
+                        variable: 'ALERT_WEBHOOK_URL'
+                    )
+                ]) {
+                    writeFile file: 'alertmanager.yml', text: """global:
+  resolve_timeout: 1m
+
+route:
+  receiver: "webhook-notification"
+  group_wait: 5s
+  group_interval: 10s
+  repeat_interval: 1h
+
+receivers:
+  - name: "webhook-notification"
+    webhook_configs:
+      - url: "${env.ALERT_WEBHOOK_URL}"
+        send_resolved: true
+"""
+                }
+
+                echo 'Removing previous monitoring containers if they exist...'
+
+                bat '''
+                    docker rm -f prometheus >NUL 2>&1 || exit /b 0
+                    docker rm -f alertmanager >NUL 2>&1 || exit /b 0
+                '''
+
+                echo 'Starting Alertmanager...'
+
+                bat '''
+                    docker run -d ^
+                      --name alertmanager ^
+                      -p 9093:9093 ^
+                      -v "%CD%\\alertmanager.yml:/etc/alertmanager/alertmanager.yml" ^
+                      prom/alertmanager
+                '''
+
+                echo 'Starting Prometheus...'
+
+                bat '''
+                    docker run -d ^
+                      --name prometheus ^
+                      -p 9090:9090 ^
+                      -v "%CD%\\prometheus.yml:/etc/prometheus/prometheus.yml" ^
+                      -v "%CD%\\prometheus_rules.yml:/etc/prometheus/prometheus_rules.yml" ^
+                      prom/prometheus
+                '''
+
+                echo 'Waiting for Prometheus and Alertmanager to become ready...'
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { Invoke-WebRequest -Uri 'http://localhost:9090/-/ready' -UseBasicParsing -TimeoutSec 3 | Out-Null; Invoke-WebRequest -Uri 'http://localhost:9093/-/ready' -UseBasicParsing -TimeoutSec 3 | Out-Null; Write-Host 'Prometheus and Alertmanager are ready.'; exit 0 } catch { Start-Sleep -Seconds 5 } }; Write-Error 'Monitoring services failed to become ready'; exit 1"
+                '''
+
+                echo 'Checking Prometheus to Alertmanager connection...'
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $response=Invoke-RestMethod -Uri 'http://localhost:9090/api/v1/alertmanagers'; $active=$response.data.activeAlertmanagers; if($active.Count -lt 1) { Write-Error 'Prometheus has no active Alertmanager connection'; exit 1 }; Write-Host 'Active Alertmanager:'; $active | ConvertTo-Json"
+                '''
+
+                echo 'Checking live production metrics endpoint...'
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $response=Invoke-WebRequest -Uri 'http://localhost:8082/metrics' -UseBasicParsing -TimeoutSec 5; if($response.StatusCode -ne 200) { Write-Error 'Production metrics endpoint failed'; exit 1 }; Write-Host 'Production /metrics endpoint is healthy.'"
+                '''
+
+                echo 'Checking production health...'
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; if($response.StatusCode -ne 200) { Write-Error 'Production health check failed'; exit 1 }; Write-Host $response.Content"
+                '''
 
                 echo 'Checking live production resource metrics...'
 
@@ -167,25 +243,21 @@ pipeline {
                     powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $stats=Get-Content 'monitoring-stats.json' -Raw | ConvertFrom-Json; $hostCpu=[double](Get-Content 'docker-cpu-count.txt' -Raw).Trim(); $rawCpu=[double](($stats.CPUPerc -replace '[^0-9.]','')); $normalizedCpu=$rawCpu / $hostCpu; $mem=[double](($stats.MemPerc -replace '[^0-9.]','')); Write-Host ('Docker raw CPU usage: ' + $rawCpu); Write-Host ('Normalized CPU usage: ' + [math]::Round($normalizedCpu,2)); Write-Host ('Memory usage: ' + $mem); if($normalizedCpu -gt 80 -or $mem -gt 80) { Write-Error 'ALERT: Normalized resource usage exceeded 80 threshold'; exit 1 }"
                 '''
 
-                echo 'Checking production health...'
-
-                bat '''
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; if($response.StatusCode -eq 200) { Write-Host 'Production health response:'; Write-Host $response.Content; exit 0 } } catch { Write-Host 'Production application is not ready yet. Waiting 5 seconds...'; Start-Sleep -Seconds 5 } }; Write-Error 'Production monitoring health check failed'; exit 1"
-                '''
-
-                echo 'Simulating a production incident...'
+                echo 'Simulating a production outage for Prometheus and Alertmanager...'
 
                 bat '''
                     docker stop aus-legal-rag-production
                 '''
 
-                echo 'Checking whether monitoring detects the production failure...'
+                echo 'Waiting for Prometheus to detect the production outage...'
 
                 bat '''
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; Write-Host ('Unexpected response received: HTTP ' + $response.StatusCode); Write-Host 'ALERT: Production application remained reachable during incident simulation'; exit 1 } catch { Write-Host 'ALERT: Production application is unavailable as expected. Monitoring detected the incident successfully.'; exit 0 }"
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Start-Sleep -Seconds 50; $alerts=Invoke-RestMethod -Uri 'http://localhost:9093/api/v2/alerts'; $match=$alerts | Where-Object { $_.labels.alertname -eq 'AusLegalRAGDown' -and $_.status.state -eq 'active' }; if(-not $match) { Write-Error 'Alertmanager did not receive the AusLegalRAGDown firing alert'; exit 1 }; Write-Host 'ALERT: Alertmanager received AusLegalRAGDown successfully.'; $match | ConvertTo-Json -Depth 10"
                 '''
 
-                echo 'Checking production container state after incident simulation...'
+                echo 'Production outage detected successfully.'
+
+                echo 'Checking production container state...'
 
                 bat '''
                     docker inspect --format="{{.State.Status}}" aus-legal-rag-production
@@ -200,19 +272,32 @@ pipeline {
                 echo 'Waiting for production recovery...'
 
                 bat '''
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; if($response.StatusCode -eq 200) { Write-Host 'Production recovery health response:'; Write-Host $response.Content; exit 0 } } catch { Write-Host 'Production application is recovering... Waiting 5 seconds...'; Start-Sleep -Seconds 5 } }; Write-Error 'Production recovery failed'; exit 1"
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; if($response.StatusCode -eq 200) { Write-Host 'Production recovery health response:'; Write-Host $response.Content; exit 0 } } catch { Write-Host 'Production application is recovering...'; Start-Sleep -Seconds 5 } }; Write-Error 'Production recovery failed'; exit 1"
                 '''
+
+                echo 'Waiting for Alertmanager to resolve the outage alert...'
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { Start-Sleep -Seconds 5; $alerts=Invoke-RestMethod -Uri 'http://localhost:9093/api/v2/alerts'; $match=$alerts | Where-Object { $_.labels.alertname -eq 'AusLegalRAGDown' -and $_.status.state -eq 'active' }; if(-not $match) { Write-Host 'Alertmanager alert resolved successfully.'; exit 0 } }; Write-Error 'Alertmanager alert did not resolve after production recovery'; exit 1"
+                '''
+
+                echo 'Checking final production state...'
 
                 bat '''
                     docker inspect --format="{{.State.Status}}" aus-legal-rag-production
                 '''
 
-                echo 'Production monitoring, alert simulation, and recovery completed successfully.'
+                echo 'Monitoring, Prometheus alerting, Alertmanager notification, incident detection, and recovery completed successfully.'
             }
 
             post {
+                always {
+                    archiveArtifacts artifacts: 'monitoring-stats.json, docker-cpu-count.txt',
+                        allowEmptyArchive: true
+                }
+
                 failure {
-                    echo 'ALERT: Production monitoring detected a real failure.'
+                    echo 'ALERT: Monitoring or alerting detected a pipeline failure.'
                 }
             }
         }
