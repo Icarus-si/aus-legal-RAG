@@ -47,10 +47,16 @@ pipeline {
                       -w /workspace ^
                       -e PYTHONPATH=/workspace ^
                       python:3.11 ^
-                      bash -c "pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir pytest pytest-cov && PYTHONPATH=/workspace python -m pytest -v --junitxml=test-results.xml --cov=app --cov-report=xml:coverage.xml"
+                      bash -c "printf '[run]\\nsource =\\n    app\\n    rag\\nrelative_files = true\\n' > .coveragerc && pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir pytest pytest-cov coverage && PYTHONPATH=/workspace python -m pytest -v --junitxml=test-results.xml --cov=app --cov-report=xml:coverage.xml --cov-config=.coveragerc"
                 '''
 
                 echo 'Automated tests completed.'
+
+                echo 'Checking generated coverage report...'
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; if(-not (Test-Path 'coverage.xml')) { Write-Error 'coverage.xml was not generated'; exit 1 }; Write-Host 'coverage.xml generated successfully.'; Get-Content 'coverage.xml' -TotalCount 12"
+                '''
             }
 
             post {
@@ -97,6 +103,7 @@ pipeline {
                               -Dsonar.sources=. ^
                               -Dsonar.tests=. ^
                               -Dsonar.python.version=3.11 ^
+                              -Dsonar.python.coverage.reportPaths=coverage.xml ^
                               -Dsonar.qualitygate.wait=true
                         """
                     }
@@ -118,8 +125,8 @@ pipeline {
                     docker run --rm ^
                       -v "%CD%:/workspace" ^
                       -w /workspace ^
-                      python:3.11 ^
-                      bash -c "pip install --no-cache-dir pip-audit && pip-audit -r requirements.txt --format json > pip-audit-report.json; exit 0"
+                      python:3.11-slim ^
+                      sh -c "pip install --no-cache-dir pip-audit && pip-audit -r requirements.txt --format json > pip-audit-report.json; exit 0"
                 '''
 
                 echo 'pip-audit scan completed.'
@@ -154,7 +161,6 @@ pipeline {
 
             post {
                 always {
-
                     echo 'Security scan stage completed.'
                 }
             }
