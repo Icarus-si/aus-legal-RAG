@@ -148,7 +148,7 @@ pipeline {
                       --exit-code 0 ^
                       --format json ^
                       --output /workspace/trivy-report.json ^
-                      %IMAGE_NAME%:${BUILD_NUMBER}
+                      %IMAGE_NAME%:%BUILD_NUMBER%
                 '''
 
                 echo 'Trivy scan completed.'
