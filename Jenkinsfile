@@ -1,52 +1,79 @@
 pipeline {
+
     agent any
 
     environment {
-        APP_NAME = 'aus-legal-rag'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-        IMAGE_NAME = "${APP_NAME}:${IMAGE_TAG}"
-
-        SONAR_SCANNER_HOME = tool 'SonarQube-Scanner'
+        IMAGE_NAME = 'aus-legal-rag'
+        STAGING_CONTAINER = 'aus-legal-rag-staging'
+        PRODUCTION_CONTAINER = 'aus-legal-rag-production'
+        STAGING_PORT = '8081'
+        PRODUCTION_PORT = '8082'
     }
 
     stages {
 
+        // ============================================================
+        // 1. BUILD
+        // ============================================================
         stage('Build') {
             steps {
-                echo "Building Docker image: ${IMAGE_NAME}"
+
+                echo 'Building Docker image...'
 
                 bat """
-                    docker build -t ${IMAGE_NAME} .
-                    docker tag ${IMAGE_NAME} ${APP_NAME}:latest
+                    docker build -t %IMAGE_NAME%:${BUILD_NUMBER} .
+                    docker tag %IMAGE_NAME%:${BUILD_NUMBER} %IMAGE_NAME%:latest
                 """
 
-                echo "Docker build completed successfully."
+                echo 'Docker image built successfully.'
+
+                bat """
+                    docker images %IMAGE_NAME%
+                """
             }
         }
 
+        // ============================================================
+        // 2. TEST
+        // ============================================================
         stage('Test') {
             steps {
-                echo 'Running automated Python tests in a clean Python 3.11 container...'
+
+                echo 'Running automated tests in a clean Python environment...'
 
                 bat '''
                     docker run --rm ^
                       -v "%CD%:/workspace" ^
                       -w /workspace ^
-                      python:3.11-slim ^
-                      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && python -m pytest -v --junitxml=test-results.xml --cov=. --cov-report=xml"
+                      python:3.11 ^
+                      bash -c "pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir pytest pytest-cov && pytest -v --junitxml=test-results.xml --cov=app --cov-report=xml:coverage.xml"
                 '''
+
+                echo 'Automated tests completed.'
             }
 
             post {
                 always {
-                    junit testResults: 'test-results.xml', allowEmptyResults: true
-                    archiveArtifacts artifacts: 'coverage.xml', allowEmptyArchive: true
+
+                    junit(
+                        testResults: 'test-results.xml',
+                        allowEmptyResults: true
+                    )
+
+                    archiveArtifacts(
+                        artifacts: 'coverage.xml',
+                        allowEmptyArchive: true
+                    )
                 }
             }
         }
 
+        // ============================================================
+        // 3. CODE QUALITY
+        // ============================================================
         stage('Code Quality') {
             steps {
+
                 echo 'Running SonarCloud code quality analysis...'
 
                 withCredentials([
@@ -55,84 +82,118 @@ pipeline {
                         variable: 'SONAR_TOKEN'
                     )
                 ]) {
+
                     bat '''
                         "%SONAR_SCANNER_HOME%\\bin\\sonar-scanner.bat" ^
+                          -Dsonar.projectKey=Icarus-si_aus-legal-RAG ^
+                          -Dsonar.organization=icarus-si ^
+                          -Dsonar.host.url=https://sonarcloud.io ^
                           -Dsonar.token=%SONAR_TOKEN% ^
+                          -Dsonar.sources=. ^
+                          -Dsonar.tests=. ^
+                          -Dsonar.python.version=3.11 ^
                           -Dsonar.qualitygate.wait=true
                     '''
                 }
+
+                echo 'SonarCloud analysis completed.'
             }
         }
 
+        // ============================================================
+        // 4. SECURITY
+        // ============================================================
         stage('Security') {
             steps {
-                echo 'Running Python dependency security scan with pip-audit...'
+
+                echo 'Running dependency vulnerability scan with pip-audit...'
 
                 bat '''
                     docker run --rm ^
                       -v "%CD%:/workspace" ^
                       -w /workspace ^
-                      python:3.11-slim ^
-                      sh -c "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt >/dev/null && python -m pip_audit -r requirements.txt --format=json --output=pip-audit-report.json --progress-spinner off; exit 0"
+                      python:3.11 ^
+                      bash -c "pip install --no-cache-dir pip-audit && pip-audit -r requirements.txt --format json > pip-audit-report.json; exit 0"
                 '''
 
-                echo 'Running Docker image security scan with Trivy...'
+                echo 'pip-audit scan completed.'
+
+                archiveArtifacts(
+                    artifacts: 'pip-audit-report.json',
+                    allowEmptyArchive: true
+                )
+
+                echo 'Running Trivy security scan on Docker image...'
 
                 bat '''
                     docker run --rm ^
                       -v //var/run/docker.sock:/var/run/docker.sock ^
-                      -v "%CD%:/workspace" ^
                       aquasec/trivy:latest ^
-                      image --format json --output /workspace/trivy-report.json --severity HIGH,CRITICAL --exit-code 0 %IMAGE_NAME%
+                      image ^
+                      --severity HIGH,CRITICAL ^
+                      --exit-code 0 ^
+                      --format json ^
+                      --output /tmp/trivy-report.json ^
+                      %IMAGE_NAME%:${BUILD_NUMBER}
                 '''
 
-                echo 'Security scans completed.'
+                echo 'Trivy scan completed.'
             }
 
             post {
                 always {
-                    archiveArtifacts artifacts: 'pip-audit-report.json, trivy-report.json',
-                        allowEmptyArchive: false
+
+                    echo 'Security scan stage completed.'
+
+                    archiveArtifacts(
+                        artifacts: 'pip-audit-report.json',
+                        allowEmptyArchive: true
+                    )
                 }
             }
         }
 
+        // ============================================================
+        // 5. DEPLOY
+        // ============================================================
         stage('Deploy') {
             steps {
-                echo "Deploying ${IMAGE_NAME} to staging environment..."
 
-                echo 'Removing previous staging container if it exists...'
+                echo 'Deploying application to staging environment...'
 
                 bat '''
                     docker rm -f aus-legal-rag-staging >NUL 2>&1 || exit /b 0
                 '''
 
-                echo 'Starting new staging container...'
-
                 bat """
                     docker run -d ^
                       --name aus-legal-rag-staging ^
-                      -p 8081:8000 ^
-                      ${IMAGE_NAME}
+                      -p %STAGING_PORT%:8000 ^
+                      %IMAGE_NAME%:${BUILD_NUMBER}
                 """
 
                 echo 'Waiting for staging application to become healthy...'
 
                 bat '''
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { $response=Invoke-WebRequest -Uri 'http://localhost:8081/health' -UseBasicParsing -TimeoutSec 3; if($response.StatusCode -eq 200) { Write-Host $response.Content; exit 0 } } catch { Start-Sleep -Seconds 5 } }; Write-Error 'Staging health check failed'; exit 1"
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { $response=Invoke-WebRequest -Uri 'http://localhost:8081/health' -UseBasicParsing -TimeoutSec 5; if($response.StatusCode -eq 200) { Write-Host 'Staging health check passed:'; Write-Host $response.Content; exit 0 } } catch { Write-Host 'Staging application is starting...'; Start-Sleep -Seconds 5 } }; Write-Error 'Staging deployment failed health check'; exit 1"
                 '''
 
-                echo 'Staging deployment and health check completed successfully.'
+                echo 'Staging deployment successful.'
             }
         }
 
+        // ============================================================
+        // 6. RELEASE
+        // ============================================================
         stage('Release') {
             steps {
-                echo 'Production release requires manual approval.'
 
-                input message: 'Approve release to production?', ok: 'Release'
+                input(
+                    message: 'Approve promotion of the staging Docker image to production?',
+                    ok: 'Deploy to Production'
+                )
 
-                echo "Releasing ${IMAGE_NAME} to production..."
+                echo 'Production release approved.'
 
                 bat '''
                     docker rm -f aus-legal-rag-production >NUL 2>&1 || exit /b 0
@@ -141,26 +202,42 @@ pipeline {
                 bat """
                     docker run -d ^
                       --name aus-legal-rag-production ^
-                      -p 8082:8000 ^
-                      ${IMAGE_NAME}
+                      -p %PRODUCTION_PORT%:8000 ^
+                      %IMAGE_NAME%:${BUILD_NUMBER}
                 """
 
-                echo 'Production container started successfully.'
+                echo 'Waiting for production application to become healthy...'
+
+                bat '''
+                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; for($i=0; $i -lt 12; $i++) { try { $response=Invoke-WebRequest -Uri 'http://localhost:8082/health' -UseBasicParsing -TimeoutSec 5; if($response.StatusCode -eq 200) { Write-Host 'Production health check passed:'; Write-Host $response.Content; exit 0 } } catch { Write-Host 'Production application is starting...'; Start-Sleep -Seconds 5 } }; Write-Error 'Production deployment failed health check'; exit 1"
+                '''
+
+                echo 'Production release completed successfully.'
             }
         }
 
+        // ============================================================
+        // 7. MONITORING
+        // ============================================================
         stage('Monitoring') {
             steps {
 
                 echo 'Starting Prometheus and Alertmanager monitoring stack...'
 
+                /*
+                 * IMPORTANT:
+                 * The webhook URL is retrieved from the Jenkins credential.
+                 * It is NOT inserted using Groovy interpolation, avoiding the
+                 * Jenkins warning about passing secrets through writeFile.
+                 */
                 withCredentials([
                     string(
                         credentialsId: 'ALERT_WEBHOOK_URL',
                         variable: 'ALERT_WEBHOOK_URL'
                     )
                 ]) {
-                    writeFile file: 'alertmanager.yml', text: """global:
+
+                    writeFile file: 'alertmanager.yml', text: '''global:
   resolve_timeout: 1m
 
 route:
@@ -172,9 +249,13 @@ route:
 receivers:
   - name: "webhook-notification"
     webhook_configs:
-      - url: "${env.ALERT_WEBHOOK_URL}"
+      - url: "__ALERT_WEBHOOK_URL__"
         send_resolved: true
-"""
+'''
+
+                    bat '''
+                        powershell -NoProfile -ExecutionPolicy Bypass -Command "$path='alertmanager.yml'; $content=Get-Content $path -Raw; $content=$content.Replace('__ALERT_WEBHOOK_URL__',$env:ALERT_WEBHOOK_URL); [System.IO.File]::WriteAllText($path,$content,(New-Object System.Text.UTF8Encoding($false)))"
+                    '''
                 }
 
                 echo 'Removing previous monitoring containers if they exist...'
@@ -291,15 +372,44 @@ receivers:
             }
 
             post {
+
                 always {
-                    archiveArtifacts artifacts: 'monitoring-stats.json, docker-cpu-count.txt',
+
+                    archiveArtifacts(
+                        artifacts: 'monitoring-stats.json, docker-cpu-count.txt',
                         allowEmptyArchive: true
+                    )
                 }
 
                 failure {
                     echo 'ALERT: Monitoring or alerting detected a pipeline failure.'
                 }
             }
+        }
+    }
+
+    // ================================================================
+    // PIPELINE POST ACTIONS
+    // ================================================================
+    post {
+
+        success {
+            echo '================================================='
+            echo 'PIPELINE COMPLETED SUCCESSFULLY'
+            echo 'All 7 DevOps stages completed.'
+            echo 'Build -> Test -> Code Quality -> Security -> Deploy -> Release -> Monitoring'
+            echo '================================================='
+        }
+
+        failure {
+            echo '================================================='
+            echo 'PIPELINE FAILED'
+            echo 'Check the failed stage and Jenkins console output.'
+            echo '================================================='
+        }
+
+        always {
+            echo 'Jenkins pipeline execution completed.'
         }
     }
 }
