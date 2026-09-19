@@ -1,0 +1,11 @@
+groups:
+  - name: aus-legal-rag-alerts
+    rules:
+      - alert: AusLegalRAGDown
+        expr: up{job="aus-legal-rag"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Australian Legal Case Analyser is down"
+          description: "Prometheus cannot reach the Australian Legal Case Analyser production service."
