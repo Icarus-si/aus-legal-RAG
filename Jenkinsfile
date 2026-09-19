@@ -77,24 +77,29 @@ pipeline {
 
                 echo 'Running SonarCloud code quality analysis...'
 
-                withCredentials([
-                    string(
-                        credentialsId: 'SONAR_TOKEN',
-                        variable: 'SONAR_TOKEN'
-                    )
-                ]) {
+                script {
 
-                    bat '''
-                        "%SONAR_SCANNER_HOME%\\bin\\sonar-scanner.bat" ^
-                          -Dsonar.projectKey=Icarus-si_aus-legal-RAG ^
-                          -Dsonar.organization=icarus-si ^
-                          -Dsonar.host.url=https://sonarcloud.io ^
-                          -Dsonar.token=%SONAR_TOKEN% ^
-                          -Dsonar.sources=. ^
-                          -Dsonar.tests=. ^
-                          -Dsonar.python.version=3.11 ^
-                          -Dsonar.qualitygate.wait=true
-                    '''
+                    def scannerHome = tool 'SonarQube-Scanner'
+
+                    withCredentials([
+                        string(
+                            credentialsId: 'SONAR_TOKEN',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+
+                        bat """
+                            "${scannerHome}\\bin\\sonar-scanner.bat" ^
+                              -Dsonar.projectKey=Icarus-si_aus-legal-RAG ^
+                              -Dsonar.organization=icarus-si ^
+                              -Dsonar.host.url=https://sonarcloud.io ^
+                              -Dsonar.token=%SONAR_TOKEN% ^
+                              -Dsonar.sources=. ^
+                              -Dsonar.tests=. ^
+                              -Dsonar.python.version=3.11 ^
+                              -Dsonar.qualitygate.wait=true
+                        """
+                    }
                 }
 
                 echo 'SonarCloud analysis completed.'
@@ -129,27 +134,28 @@ pipeline {
                 bat '''
                     docker run --rm ^
                       -v //var/run/docker.sock:/var/run/docker.sock ^
+                      -v "%CD%:/workspace" ^
                       aquasec/trivy:latest ^
                       image ^
                       --severity HIGH,CRITICAL ^
                       --exit-code 0 ^
                       --format json ^
-                      --output /tmp/trivy-report.json ^
+                      --output /workspace/trivy-report.json ^
                       %IMAGE_NAME%:${BUILD_NUMBER}
                 '''
 
                 echo 'Trivy scan completed.'
+
+                archiveArtifacts(
+                    artifacts: 'trivy-report.json',
+                    allowEmptyArchive: true
+                )
             }
 
             post {
                 always {
 
                     echo 'Security scan stage completed.'
-
-                    archiveArtifacts(
-                        artifacts: 'pip-audit-report.json',
-                        allowEmptyArchive: true
-                    )
                 }
             }
         }
@@ -368,6 +374,7 @@ receivers:
 
             post {
                 always {
+
                     archiveArtifacts(
                         artifacts: 'monitoring-stats.json, docker-cpu-count.txt',
                         allowEmptyArchive: true
